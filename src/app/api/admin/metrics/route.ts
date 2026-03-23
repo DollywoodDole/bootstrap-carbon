@@ -7,13 +7,11 @@ import { getServerSession } from "next-auth"
 import { authConfig } from "@/lib/auth/config"
 import { db } from "@/lib/db/client"
 
-// SaaS subscription fee per enrolled farm per month
-const SAAS_FEE_PER_FARM_MONTH = 35
-
 // Credit market prices $/tonne CO2e
 const MARKET_PRICES: Record<string, number> = {
   "AB-TIER":   56,
   "CFR":       62,
+  "CA-CFR":    62,
   "CA-OBPS":   65,
   "VOLUNTARY": 75,
 }
@@ -89,9 +87,11 @@ export async function GET(req: NextRequest) {
       },
     }),
 
-    // Farms currently enrolled in active (non-FORMING) pools
-    db.poolMembership.count({
-      where: { pool: { status: { not: "FORMING" } } },
+    // Active SaaS subscriptions
+    db.subscription.aggregate({
+      where:  { status: "ACTIVE" },
+      _sum:   { monthlyRate: true },
+      _count: true,
     }),
 
     // Farm count by province
@@ -101,8 +101,8 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  // SaaS MRR — per-farm subscription on active pool enrolments
-  const saasMrr = activeMemberships * SAAS_FEE_PER_FARM_MONTH
+  // SaaS MRR — live from subscriptions table
+  const saasMrr = Math.round(Number(activeMemberships._sum.monthlyRate ?? 0))
 
   // CBAM YTD
   const cbamRevenueYtd = Number(cbamYtd._sum.totalCost ?? 0)
@@ -137,7 +137,7 @@ export async function GET(req: NextRequest) {
       // Supplemental detail for due diligence
       credit_revenue_by_market: creditRevenueByMarket,
       total_credit_revenue:     totalCreditRevenue,
-      enrolled_farm_months:     activeMemberships,
+      active_subscriptions:     activeMemberships._count,
       as_of: new Date().toISOString(),
     },
     success: true,

@@ -19,10 +19,38 @@ model Organization {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users       User[]
-  farms       Farm[]
-  pools       Pool[]
+  users        User[]
+  farms        Farm[]
+  pools        Pool[]
   cbamPackages CBAMPackage[]
+  subscription Subscription?
+}
+
+// ── Subscriptions ───────────────────────────────────────────
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String             @unique
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  plan           SubscriptionPlan
+  status         SubscriptionStatus
+  monthlyRate    Decimal            @db.Decimal(10, 2)
+  startDate      DateTime           @default(now())
+  trialEndsAt    DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+enum SubscriptionPlan {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  CANCELLED
 }
 
 enum OrgType {
