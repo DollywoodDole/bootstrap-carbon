@@ -1,0 +1,298 @@
+// prisma/schema.prisma
+// Bootstrap Carbon — Full data model
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Multi-tenancy ──────────────────────────────────────────
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  type        OrgType  @default(COOPERATIVE)
+  jurisdiction String  @default("CA-SK")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  farms       Farm[]
+  pools       Pool[]
+  cbamPackages CBAMPackage[]
+}
+
+enum OrgType {
+  COOPERATIVE
+  CORPORATION
+  INDIGENOUS_COMMUNITY
+  INDUSTRIAL_FACILITY
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String?
+  role           UserRole @default(FARMER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+
+  accounts Account[]
+  sessions Session[]
+  farms    Farm[]
+}
+
+enum UserRole {
+  FARMER
+  POOL_MANAGER
+  ADMIN
+  VERIFIER
+}
+
+// ── NextAuth ───────────────────────────────────────────────
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── Core domain ────────────────────────────────────────────
+model Farm {
+  id             String   @id @default(cuid())
+  name           String
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // Location
+  province       String   // "SK" | "AB"
+  municipality   String?
+  lat            Float?
+  lng            Float?
+  totalHectares  Float
+
+  // Land characteristics
+  soilZone       String?  // AB soil zone or SK equivalent
+  landClass      String?  // Class 1-7 Canada Land Inventory
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  projects       Project[]
+  memberships    PoolMembership[]
+}
+
+model Project {
+  id             String        @id @default(cuid())
+  farmId         String
+  farm           Farm          @relation(fields: [farmId], references: [id])
+  name           String
+
+  // Protocol
+  protocolId     String        // e.g. "conservation-cropping-v2"
+  protocolVersion String
+  stacksWith     String[]      // e.g. ["cfr-v1"] if dual-issuance eligible
+  currentPractice String       // practice BEFORE project
+  projectPractice String       // practice DURING project
+
+  // Geometry
+  hectares       Float
+  coordinates    Json?         // GeoJSON polygon
+
+  // Status
+  status         ProjectStatus @default(PENDING)
+  registeredDate DateTime?
+  verifiedDate   DateTime?
+  expiryDate     DateTime?
+
+  // Registry
+  abRegistryId   String?       // Alberta Emissions Offset Registry ID
+  crediting_period_years Int   @default(5)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  monitoringData MonitoringRecord[]
+  credits        OffsetCredit[]
+}
+
+enum ProjectStatus {
+  PENDING
+  REGISTERED
+  MONITORING
+  VERIFICATION_IN_PROGRESS
+  VERIFIED
+  EXPIRED
+  SUSPENDED
+}
+
+model MonitoringRecord {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  recordedAt  DateTime
+  source      MonitoringSource
+  dataHash    String?  // SHA256 of raw data — on-chain timestamp
+
+  // Calculated values
+  baselineEmissions   Decimal  @db.Decimal(12,6)
+  projectEmissions    Decimal  @db.Decimal(12,6)
+  netReduction        Decimal  @db.Decimal(12,6)
+
+  rawData     Json?
+  createdAt   DateTime @default(now())
+}
+
+enum MonitoringSource {
+  IOT_SENSOR
+  SATELLITE
+  FARMER_SELF_REPORT
+  THIRD_PARTY_AUDIT
+}
+
+// ── Pool aggregation ───────────────────────────────────────
+model Pool {
+  id             String     @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  description    String?
+  province       String
+
+  // Economics
+  platformFeeRate  Decimal  @default(0.10) @db.Decimal(4,4)
+  totalHectares    Float?
+  estimatedCredits Decimal? @db.Decimal(12,3)
+
+  // Verification
+  verifierName     String?
+  verifierLicense  String?
+  verificationCost Decimal? @db.Decimal(10,2)
+
+  status         PoolStatus @default(FORMING)
+  submittedDate  DateTime?
+  verifiedDate   DateTime?
+
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  memberships    PoolMembership[]
+  credits        OffsetCredit[]
+}
+
+enum PoolStatus {
+  FORMING
+  CLOSED
+  SUBMITTED
+  UNDER_VERIFICATION
+  VERIFIED
+  CREDITS_ISSUED
+}
+
+model PoolMembership {
+  id             String  @id @default(cuid())
+  poolId         String
+  pool           Pool    @relation(fields: [poolId], references: [id])
+  farmId         String
+  farm           Farm    @relation(fields: [farmId], references: [id])
+  contributionHa Float
+  creditShare    Decimal @db.Decimal(8,6)
+  status         String  @default("active")
+  joinedAt       DateTime @default(now())
+
+  @@unique([poolId, farmId])
+}
+
+// ── Credits ────────────────────────────────────────────────
+model OffsetCredit {
+  id               String       @id @default(cuid())
+  projectId        String?
+  project          Project?     @relation(fields: [projectId], references: [id])
+  poolId           String?
+  pool             Pool?        @relation(fields: [poolId], references: [id])
+
+  // Quantity
+  quantity         Decimal      @db.Decimal(12,3)  // tonnes CO2e
+  vintageYear      Int
+  complianceMarket String       // "AB-TIER" | "CA-OBPS" | "CFR" | "VOLUNTARY"
+
+  // On-chain
+  mintAddress      String?      // SPL token mint address
+  onChainSignature String?      // issuance tx signature
+  retirementSignature String?   // retirement tx signature
+
+  // Registry
+  abRegistryId     String?
+  serialNumbers    String[]
+
+  status           CreditStatus @default(PENDING)
+  issuedAt         DateTime?
+  retiredAt        DateTime?
+  retiredBy        String?
+  retirementReason String?
+
+  createdAt        DateTime     @default(now())
+
+  transfers        CreditTransfer[]
+}
+
+enum CreditStatus {
+  PENDING
+  ISSUED
+  TRANSFERRED
+  RETIRED
+  CANCELLED
+}
+
+model CreditTransfer {
+  id        String       @id @default(cuid())
+  creditId  String
+  credit    OffsetCredit @relation(fields: [creditId], references: [id])
+  fromOwner String
+  toOwner   String
+  price     Decimal?     @db.Decimal(10,2)
+  currency  String       @default("CAD")
+  txHash    String?
+  createdAt DateTime     @default(now())
+}
+
+// ── CBAM ───────────────────────────────────────────────────
+model CBAMPackage {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  facilityName   String
+  facilityType   String   // "FERTILIZER" | "CEMENT" | "STEEL" | "OIL_GAS"
+  reportingYear  Int
+  status         String   @default("draft")
+  totalCarbon    Decimal  @db.Decimal(12,3)
+  totalCost      Decimal  @db.Decimal(12,2)
+  currency       String   @default("CAD")
+  documentUrl    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
