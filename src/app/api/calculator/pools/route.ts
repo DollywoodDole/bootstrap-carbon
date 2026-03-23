@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const totalHectares = farms.reduce((sum, f) => sum + f.totalHectares, 0);
+  const totalHectares = farms.reduce((sum: number, f) => sum + f.totalHectares, 0);
 
   const pool = await db.pool.create({
     data: {

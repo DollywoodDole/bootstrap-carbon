@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find node_modules/@base-ui/react -name BaseUI*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -rl \"render.*prop\\\\|renderAs\\\\|as prop\" node_modules/@base-ui/react --include=*.d.ts)"
+    ]
+  }
+}
