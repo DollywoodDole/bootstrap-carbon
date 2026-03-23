@@ -14,6 +14,9 @@ export default function HomePage() {
           <Badge variant="outline" className="ml-2 text-xs">Cooperative</Badge>
         </div>
         <div className="flex gap-2">
+          <Link href="/contact" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+            Contact
+          </Link>
           <Link href="/login" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
             Sign in
           </Link>
