@@ -76,6 +76,7 @@ export const authConfig: AuthOptions = {
         session.user.id             = token.id as string
         session.user.role           = token.role as string
         session.user.organizationId = token.organizationId as string
+        if (token.isDemo) session.user.isDemo = true
       }
       return session
     },
